@@ -53,7 +53,7 @@ export function AppSidebar({ notes, activeNoteId, onNoteSelect, onNewNote }: App
   };
 
   return (
-    <Sidebar className={isCollapsed ? "w-14" : "w-80"}>
+    <Sidebar variant="sidebar" className="border-r border-border">
       <SidebarHeader className="p-4 border-b border-border">
         {!isCollapsed && (
           <>

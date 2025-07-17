@@ -78,7 +78,7 @@ export function NotesApp() {
   };
 
   return (
-    <SidebarProvider defaultOpen={true}>
+    <SidebarProvider>
       <div className="min-h-screen flex w-full bg-background">
         <AppSidebar
           notes={notes}
@@ -87,12 +87,10 @@ export function NotesApp() {
           onNewNote={handleNewNote}
         />
         
-        <main className="flex-1 flex flex-col">
+        <main className="flex-1 flex flex-col min-w-0">
           {/* Header with sidebar trigger */}
-          <header className="h-12 flex items-center border-b border-border bg-background">
-            <SidebarTrigger className="ml-4">
-              <Menu className="h-4 w-4" />
-            </SidebarTrigger>
+          <header className="h-12 flex items-center border-b border-border bg-background px-4">
+            <SidebarTrigger />
           </header>
 
           {/* Editor area */}
