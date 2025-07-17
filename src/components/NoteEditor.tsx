@@ -20,9 +20,9 @@ export function NoteEditor({ title, content, onTitleChange, onContentChange }: N
   }, [content]);
 
   const handleFormat = useCallback((command: string, value?: string) => {
-    document.execCommand(command, false, value);
     if (editorRef.current) {
       editorRef.current.focus();
+      document.execCommand(command, false, value);
     }
   }, []);
 
@@ -54,16 +54,6 @@ export function NoteEditor({ title, content, onTitleChange, onContentChange }: N
 
   return (
     <div className="flex flex-col h-full bg-editor">
-      {/* Title input */}
-      <div className="p-6 border-b border-border">
-        <Input
-          value={title}
-          onChange={(e) => onTitleChange(e.target.value)}
-          placeholder="Note title..."
-          className="text-2xl font-semibold border-none bg-transparent p-0 focus-visible:ring-0 focus-visible:ring-offset-0"
-        />
-      </div>
-
       {/* Formatting toolbar */}
       <FormatToolbar onFormat={handleFormat} />
 

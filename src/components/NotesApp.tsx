@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar, Note } from "./AppSidebar";
 import { NoteEditor } from "./NoteEditor";
+import { Input } from "@/components/ui/input";
 import { Menu } from "lucide-react";
 
 export function NotesApp() {
@@ -88,9 +89,17 @@ export function NotesApp() {
         />
         
         <main className="flex-1 flex flex-col min-w-0">
-          {/* Header with sidebar trigger */}
-          <header className="h-12 flex items-center border-b border-border bg-background px-4">
+          {/* Header with sidebar trigger and title */}
+          <header className="h-12 flex items-center border-b border-border bg-background px-4 gap-4">
             <SidebarTrigger />
+            {activeNote && (
+              <Input
+                value={activeNote.title}
+                onChange={(e) => handleTitleChange(e.target.value)}
+                placeholder="Note title..."
+                className="text-lg font-semibold border-none bg-transparent p-0 focus-visible:ring-0 focus-visible:ring-offset-0 flex-1"
+              />
+            )}
           </header>
 
           {/* Editor area */}
