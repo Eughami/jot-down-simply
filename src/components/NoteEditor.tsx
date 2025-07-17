@@ -1,6 +1,6 @@
-import { useRef, useEffect, useCallback } from "react";
-import { FormatToolbar } from "./FormatToolbar";
-import { Input } from "@/components/ui/input";
+import { useRef, useEffect, useCallback } from 'react';
+import { FormatToolbar } from './FormatToolbar';
+import { Input } from '@/components/ui/input';
 
 interface NoteEditorProps {
   title: string;
@@ -9,7 +9,12 @@ interface NoteEditorProps {
   onContentChange: (content: string) => void;
 }
 
-export function NoteEditor({ title, content, onTitleChange, onContentChange }: NoteEditorProps) {
+export function NoteEditor({
+  title,
+  content,
+  onTitleChange,
+  onContentChange,
+}: NoteEditorProps) {
   const editorRef = useRef<HTMLDivElement>(null);
 
   // Update editor content when content prop changes
@@ -32,25 +37,33 @@ export function NoteEditor({ title, content, onTitleChange, onContentChange }: N
     }
   }, [onContentChange]);
 
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    // Handle keyboard shortcuts
-    if (e.ctrlKey || e.metaKey) {
-      switch (e.key) {
-        case 'b':
-          e.preventDefault();
-          handleFormat('bold');
-          break;
-        case 'i':
-          e.preventDefault();
-          handleFormat('italic');
-          break;
-        case 'u':
-          e.preventDefault();
-          handleFormat('underline');
-          break;
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      // Handle keyboard shortcuts
+      if (e.ctrlKey || e.metaKey) {
+        switch (e.key) {
+          case 'b':
+            e.preventDefault();
+            e.stopPropagation();
+            handleFormat('bold');
+            break;
+          case 'i':
+            e.preventDefault();
+            handleFormat('italic');
+            break;
+          case 'u':
+            e.preventDefault();
+            handleFormat('underline');
+            break;
+          case 's':
+            e.preventDefault();
+            handleFormat('strikethrough');
+            break;
+        }
       }
-    }
-  }, [handleFormat]);
+    },
+    [handleFormat]
+  );
 
   return (
     <div className="flex flex-col h-full bg-editor">
@@ -108,6 +121,12 @@ export function NoteEditor({ title, content, onTitleChange, onContentChange }: N
         [contenteditable] ul, [contenteditable] ol {
           margin: 1em 0;
           padding-left: 2em;
+          list-style-type: disc; /* for ul */
+          list-style-position: inside;
+        }
+
+        [contenteditable] ol {
+          list-style-type: decimal; /* for ol */
         }
         
         [contenteditable] li {

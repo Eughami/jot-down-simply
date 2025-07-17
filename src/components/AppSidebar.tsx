@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Plus, FileText, Search } from "lucide-react";
+import { useState } from 'react';
+import { Plus, FileText, Search } from 'lucide-react';
 import {
   Sidebar,
   SidebarContent,
@@ -8,10 +8,10 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   useSidebar,
-} from "@/components/ui/sidebar";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
+} from '@/components/ui/sidebar';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 export interface Note {
   id: string;
@@ -27,22 +27,33 @@ interface AppSidebarProps {
   onNewNote: () => void;
 }
 
-export function AppSidebar({ notes, activeNoteId, onNoteSelect, onNewNote }: AppSidebarProps) {
+export function AppSidebar({
+  notes,
+  activeNoteId,
+  onNoteSelect,
+  onNewNote,
+}: AppSidebarProps) {
   const { state } = useSidebar();
-  const [searchQuery, setSearchQuery] = useState("");
-  const isCollapsed = state === "collapsed";
+  const [searchQuery, setSearchQuery] = useState('');
+  const isCollapsed = state === 'collapsed';
 
-  const filteredNotes = notes.filter(note =>
-    note.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    note.content.toLowerCase().includes(searchQuery.toLowerCase())
+  const filteredNotes = notes.filter(
+    (note) =>
+      note.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      note.content.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const formatDate = (date: Date) => {
     const now = new Date();
-    const diffInDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
-    
+    const diffInDays = Math.floor(
+      (now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24)
+    );
+
     if (diffInDays === 0) {
-      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      return date.toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit',
+      });
     } else if (diffInDays === 1) {
       return 'Yesterday';
     } else if (diffInDays < 7) {
@@ -51,6 +62,25 @@ export function AppSidebar({ notes, activeNoteId, onNoteSelect, onNewNote }: App
       return date.toLocaleDateString();
     }
   };
+
+  function getTextPreview(html: string, maxLength = 100): string {
+    // Create a dummy element to parse HTML
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = html;
+
+    // Get text content only
+    let text = tempDiv.textContent || tempDiv.innerText || '';
+
+    // Trim and normalize whitespace
+    text = text.replace(/\s+/g, ' ').trim();
+
+    // Truncate to maxLength
+    if (text.length > maxLength) {
+      text = text.slice(0, maxLength).trim() + '...';
+    }
+
+    return text;
+  }
 
   return (
     <Sidebar variant="sidebar" className="border-r border-border">
@@ -101,26 +131,24 @@ export function AppSidebar({ notes, activeNoteId, onNoteSelect, onNewNote }: App
                   isActive={note.id === activeNoteId}
                   className={`
                     h-auto p-3 rounded-lg cursor-pointer transition-colors
-                    ${note.id === activeNoteId 
-                      ? 'bg-note-active text-note-active-foreground' 
-                      : 'hover:bg-note-hover'
+                    ${
+                      note.id === activeNoteId
+                        ? 'bg-note-active text-note-active-foreground'
+                        : 'hover:bg-note-hover'
                     }
                   `}
                 >
-                  <div
-                    onClick={() => onNoteSelect(note.id)}
-                    className="w-full"
-                  >
+                  <div onClick={() => onNoteSelect(note.id)} className="w-full">
                     {!isCollapsed ? (
                       <div className="flex flex-col items-start space-y-1">
                         <div className="flex items-center space-x-2 w-full">
                           <FileText className="h-4 w-4 text-current flex-shrink-0" />
                           <span className="font-medium text-sm truncate">
-                            {note.title || 'Untitled'}
+                            {getTextPreview(note.title) || 'Untitled'}
                           </span>
                         </div>
                         <p className="text-xs text-current/70 line-clamp-2 text-left">
-                          {note.content.replace(/<[^>]*>/g, '').substring(0, 100) || 'No content'}
+                          {getTextPreview(note.content)}
                         </p>
                         <span className="text-xs text-current/50">
                           {formatDate(note.lastModified)}

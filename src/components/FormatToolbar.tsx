@@ -1,6 +1,13 @@
-import { Bold, Italic, Underline, List, ListOrdered } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
+import {
+  Bold,
+  Italic,
+  Underline,
+  List,
+  ListOrdered,
+  Strikethrough,
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Separator } from '@/components/ui/separator';
 
 interface FormatToolbarProps {
   onFormat: (command: string, value?: string) => void;
@@ -11,8 +18,8 @@ export function FormatToolbar({ onFormat }: FormatToolbarProps) {
     { command: 'bold', icon: Bold, label: 'Bold' },
     { command: 'italic', icon: Italic, label: 'Italic' },
     { command: 'underline', icon: Underline, label: 'Underline' },
+    { command: 'strikethrough', icon: Strikethrough, label: 'Strikethrough' },
   ];
-
 
   const listButtons = [
     { command: 'insertUnorderedList', icon: List, label: 'Bullet List' },
