@@ -144,7 +144,7 @@ export function AppSidebar({
                         <div className="flex items-center space-x-2 w-full">
                           <FileText className="h-4 w-4 text-current flex-shrink-0" />
                           <span className="font-medium text-sm truncate">
-                            {getTextPreview(note.title) || 'Untitled'}
+                            {getTextPreview(note.title, 20) || 'Untitled'}
                           </span>
                         </div>
                         <p className="text-xs text-current/70 line-clamp-2 text-left">
