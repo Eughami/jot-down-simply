@@ -8,14 +8,17 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Loader2 } from 'lucide-react';
 import { useState } from 'react';
 
 const Index = () => {
   const [userId, setUserId] = useState(localStorage.getItem('userId'));
   const [inputValue, setInputValue] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
   const handleSave = async (value: string) => {
-    console.log('Saved value:', value);
+    setIsLoading(true);
+
     try {
       const user = await createUser(value);
       if (user.id) {
@@ -24,6 +27,8 @@ const Index = () => {
       }
     } catch (error) {
       console.error(error);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -43,9 +48,16 @@ const Index = () => {
           <DialogFooter>
             <Button
               onClick={() => handleSave(inputValue)}
-              disabled={inputValue.length < 3}
+              disabled={inputValue.length < 3 || isLoading}
             >
-              Save
+              {isLoading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                'Save'
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

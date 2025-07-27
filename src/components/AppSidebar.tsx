@@ -17,7 +17,8 @@ export interface Note {
   id: string;
   title: string;
   content: string;
-  lastModified: Date;
+  updated_at: Date;
+  is_hidden?: boolean;
 }
 
 interface AppSidebarProps {
@@ -151,7 +152,7 @@ export function AppSidebar({
                           {getTextPreview(note.content)}
                         </p>
                         <span className="text-xs text-current/50">
-                          {formatDate(note.lastModified)}
+                          {formatDate(note.updated_at)}
                         </span>
                       </div>
                     ) : (

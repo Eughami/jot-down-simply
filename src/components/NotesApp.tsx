@@ -1,37 +1,45 @@
-import { useState, useEffect } from "react";
-import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
-import { AppSidebar, Note } from "./AppSidebar";
-import { NoteEditor } from "./NoteEditor";
-import { Input } from "@/components/ui/input";
-import { Menu } from "lucide-react";
+import { useState, useEffect } from 'react';
+import { SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
+import { AppSidebar, Note } from './AppSidebar';
+import { NoteEditor } from './NoteEditor';
+import { Input } from '@/components/ui/input';
+import { Loader2, Menu } from 'lucide-react';
+import { getNotes, mergeNotes } from '@/api';
 
 export function NotesApp() {
+  const [loading, setLoading] = useState(true);
   const [notes, setNotes] = useState<Note[]>([]);
   const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
 
   // Load notes from localStorage on mount
   useEffect(() => {
-    const savedNotes = localStorage.getItem('notes');
-    if (savedNotes) {
-      const parsedNotes = JSON.parse(savedNotes).map((note: any) => ({
-        ...note,
-        lastModified: new Date(note.lastModified)
-      }));
-      setNotes(parsedNotes);
-      if (parsedNotes.length > 0) {
-        setActiveNoteId(parsedNotes[0].id);
+    async function initialLoad(): Promise<void> {
+      try {
+        const notes = await getNotes();
+        const allNotes = await mergeNotes(notes);
+        if (allNotes.length > 0) {
+          setNotes(allNotes);
+          setActiveNoteId(allNotes[0].id);
+        } else {
+          const welcomeNote: Note = {
+            id: Date.now().toString(),
+            title: 'Welcome to Notes',
+            content:
+              '<p>Welcome to your minimalist note-taking app!</p><p>Start by clicking the <strong>+</strong> button to create a new note, or edit this one.</p><p>Use the formatting toolbar to make your text <strong>bold</strong>, <em>italic</em>, or <u>underlined</u>.</p>',
+            updated_at: new Date(),
+          };
+          setNotes([welcomeNote]);
+          setActiveNoteId(welcomeNote.id);
+        }
+      } catch (err) {
+        console.error(err);
+      } finally {
+        console.log('Merge done');
+        setLoading(false);
       }
-    } else {
-      // Create a welcome note
-      const welcomeNote: Note = {
-        id: 'welcome',
-        title: 'Welcome to Notes',
-        content: '<p>Welcome to your minimalist note-taking app!</p><p>Start by clicking the <strong>+</strong> button to create a new note, or edit this one.</p><p>Use the formatting toolbar to make your text <strong>bold</strong>, <em>italic</em>, or <u>underlined</u>.</p>',
-        lastModified: new Date()
-      };
-      setNotes([welcomeNote]);
-      setActiveNoteId(welcomeNote.id);
     }
+
+    initialLoad();
   }, []);
 
   // Save notes to localStorage whenever notes change
@@ -41,16 +49,16 @@ export function NotesApp() {
     }
   }, [notes]);
 
-  const activeNote = notes.find(note => note.id === activeNoteId);
+  const activeNote = notes.find((note) => note.id === activeNoteId);
 
   const handleNewNote = () => {
     const newNote: Note = {
       id: Date.now().toString(),
       title: '',
       content: '',
-      lastModified: new Date()
+      updated_at: new Date(),
     };
-    setNotes(prev => [newNote, ...prev]);
+    setNotes((prev) => [newNote, ...prev]);
     setActiveNoteId(newNote.id);
   };
 
@@ -60,34 +68,44 @@ export function NotesApp() {
 
   const handleTitleChange = (title: string) => {
     if (!activeNoteId) return;
-    
-    setNotes(prev => prev.map(note => 
-      note.id === activeNoteId 
-        ? { ...note, title, lastModified: new Date() }
-        : note
-    ));
+
+    setNotes((prev) =>
+      prev.map((note) =>
+        note.id === activeNoteId
+          ? { ...note, title, updated_at: new Date() }
+          : note
+      )
+    );
   };
 
   const handleContentChange = (content: string) => {
     if (!activeNoteId) return;
-    
-    setNotes(prev => prev.map(note => 
-      note.id === activeNoteId 
-        ? { ...note, content, lastModified: new Date() }
-        : note
-    ));
+
+    setNotes((prev) =>
+      prev.map((note) =>
+        note.id === activeNoteId
+          ? { ...note, content, updated_at: new Date() }
+          : note
+      )
+    );
   };
 
   return (
     <SidebarProvider>
       <div className="min-h-screen flex w-full bg-background">
+        {loading && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+            <Loader2 className="h-12 w-12 animate-spin text-white" />
+          </div>
+        )}
+
         <AppSidebar
           notes={notes}
           activeNoteId={activeNoteId}
           onNoteSelect={handleNoteSelect}
           onNewNote={handleNewNote}
         />
-        
+
         <main className="flex-1 flex flex-col min-w-0">
           {/* Header with sidebar trigger and title */}
           <header className="h-12 flex items-center border-b border-border bg-background px-4 gap-4">
