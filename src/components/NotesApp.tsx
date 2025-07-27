@@ -17,6 +17,7 @@ export function NotesApp() {
       try {
         const notes = await getNotes();
         const allNotes = await mergeNotes(notes);
+        console.log(allNotes);
         if (allNotes.length > 0) {
           setNotes(allNotes);
           setActiveNoteId(allNotes[0].id);
