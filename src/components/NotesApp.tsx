@@ -6,7 +6,9 @@ import { Input } from '@/components/ui/input';
 import { Loader2 } from 'lucide-react';
 import {
   getNotes,
+  getNotesSince,
   mergeNotes,
+  mergeRemoteChanges,
   noteChangedAt,
   saveLocalNotes,
   syncNote,
@@ -57,30 +59,75 @@ export function NotesApp() {
     );
   });
   const syncTimersRef = useRef<Record<string, number>>({});
+  const retryTimersRef = useRef<Map<string, number>>(new Map());
+  const lastPollRef = useRef(new Date());
   const initialSortOptionRef = useRef(sortOption);
 
-  const queueNoteSync = useCallback((note: Note, delay = 700) => {
-    window.clearTimeout(syncTimersRef.current[note.id]);
+  const scheduleRetry = useCallback(
+    (note: Note, retryCount = 0) => {
+      const delay = Math.min(1000 * Math.pow(2, retryCount), 30000);
 
-    syncTimersRef.current[note.id] = window.setTimeout(async () => {
-      try {
-        const syncedNote = await syncNote(note);
+      const timerId = window.setTimeout(async () => {
+        try {
+          const syncedNote = await syncNote(note);
+          setNotes((prev) =>
+            prev.map((n) =>
+              n.id === syncedNote.id
+                ? { ...syncedNote, syncStatus: 'synced' as const }
+                : n
+            )
+          );
+          retryTimersRef.current.delete(note.id);
+        } catch (error) {
+          console.error(error);
+          if (retryCount < 4) {
+            scheduleRetry(note, retryCount + 1);
+          } else {
+            setNotes((prev) =>
+              prev.map((n) =>
+                n.id === note.id
+                  ? { ...n, syncStatus: 'error' as const }
+                  : n
+              )
+            );
+            retryTimersRef.current.delete(note.id);
+          }
+        }
+      }, delay);
 
-        setNotes((prev) =>
-          prev.map((currentNote) => {
-            if (currentNote.id !== syncedNote.id) return currentNote;
-            return noteChangedAt(syncedNote) >= noteChangedAt(currentNote)
-              ? syncedNote
-              : currentNote;
-          })
-        );
-      } catch (error) {
-        console.error(error);
-      } finally {
-        delete syncTimersRef.current[note.id];
-      }
-    }, delay);
-  }, []);
+      retryTimersRef.current.set(note.id, timerId);
+    },
+    []
+  );
+
+  const queueNoteSync = useCallback(
+    (note: Note, delay = 700) => {
+      window.clearTimeout(syncTimersRef.current[note.id]);
+      window.clearTimeout(retryTimersRef.current.get(note.id));
+      retryTimersRef.current.delete(note.id);
+
+      syncTimersRef.current[note.id] = window.setTimeout(async () => {
+        try {
+          const syncedNote = await syncNote(note);
+
+          setNotes((prev) =>
+            prev.map((currentNote) => {
+              if (currentNote.id !== syncedNote.id) return currentNote;
+              return noteChangedAt(syncedNote) >= noteChangedAt(currentNote)
+                ? { ...syncedNote, syncStatus: 'synced' as const }
+                : currentNote;
+            })
+          );
+        } catch (error) {
+          console.error(error);
+          scheduleRetry(note, 0);
+        } finally {
+          delete syncTimersRef.current[note.id];
+        }
+      }, delay);
+    },
+    [scheduleRetry]
+  );
 
   // Load notes from localStorage on mount
   useEffect(() => {
@@ -95,19 +142,24 @@ export function NotesApp() {
         }
 
         const allNotes = await mergeNotes(remoteNotes);
+        const notesWithStatus = allNotes.map((n) => ({
+          ...n,
+          syncStatus: 'synced' as const,
+        }));
         const visibleNotes = sortVisibleNotes(
-          allNotes,
+          notesWithStatus,
           initialSortOptionRef.current
         );
 
         if (visibleNotes.length > 0) {
-          setNotes(allNotes);
+          setNotes(notesWithStatus);
           setActiveNoteId(visibleNotes[0].id);
         } else {
           const welcomeNote = createDraftNote({
             title: 'Welcome to Notes',
             content:
               '<p>Welcome to your minimalist note-taking app!</p><p>Start by clicking the <strong>+</strong> button to create a new note, or edit this one.</p><p>Use the formatting toolbar to make your text <strong>bold</strong>, <em>italic</em>, or <u>underlined</u>.</p>',
+            syncStatus: 'pending' as const,
           });
 
           setNotes([welcomeNote]);
@@ -117,6 +169,7 @@ export function NotesApp() {
       } catch (err) {
         console.error(err);
       } finally {
+        lastPollRef.current = new Date();
         setLoading(false);
       }
     }
@@ -131,15 +184,45 @@ export function NotesApp() {
     }
   }, [loading, notes]);
 
+  // Periodic poll for remote changes
+  useEffect(() => {
+    if (loading) return;
+
+    const intervalId = setInterval(async () => {
+      try {
+        const changedNotes = await getNotesSince(
+          lastPollRef.current.toISOString()
+        );
+        if (changedNotes.length > 0) {
+          lastPollRef.current = new Date();
+          setNotes((prev) => {
+            const merged = mergeRemoteChanges(changedNotes, prev);
+            return merged.map((n) =>
+              n.syncStatus ? n : { ...n, syncStatus: 'synced' as const }
+            );
+          });
+        }
+      } catch (error) {
+        console.error(error);
+      }
+    }, 30000);
+
+    return () => clearInterval(intervalId);
+  }, [loading]);
+
   useEffect(() => {
     localStorage.setItem(SORT_STORAGE_KEY, sortOption);
   }, [sortOption]);
 
   useEffect(() => {
     const syncTimers = syncTimersRef.current;
+    const retryTimers = retryTimersRef.current;
 
     return () => {
       Object.values(syncTimers).forEach((timerId) => {
+        window.clearTimeout(timerId);
+      });
+      retryTimers.forEach((timerId) => {
         window.clearTimeout(timerId);
       });
     };
@@ -155,7 +238,7 @@ export function NotesApp() {
   );
 
   const handleNewNote = () => {
-    const newNote = createDraftNote();
+    const newNote = createDraftNote({ syncStatus: 'pending' as const });
 
     setNotes((prev) => [newNote, ...prev]);
     setActiveNoteId(newNote.id);
@@ -172,12 +255,15 @@ export function NotesApp() {
     const activeNote = notes.find((note) => note.id === activeNoteId);
     if (!activeNote) return;
 
-    const updatedNote = { ...activeNote, title, updated_at: new Date() };
+    const updatedNote = {
+      ...activeNote,
+      title,
+      updated_at: new Date(),
+      syncStatus: 'pending' as const,
+    };
 
     setNotes((prev) =>
-      prev.map((note) =>
-        note.id === activeNoteId ? updatedNote : note
-      )
+      prev.map((note) => (note.id === activeNoteId ? updatedNote : note))
     );
     queueNoteSync(updatedNote);
   };
@@ -188,12 +274,15 @@ export function NotesApp() {
     const activeNote = notes.find((note) => note.id === activeNoteId);
     if (!activeNote) return;
 
-    const updatedNote = { ...activeNote, content, updated_at: new Date() };
+    const updatedNote = {
+      ...activeNote,
+      content,
+      updated_at: new Date(),
+      syncStatus: 'pending' as const,
+    };
 
     setNotes((prev) =>
-      prev.map((note) =>
-        note.id === activeNoteId ? updatedNote : note
-      )
+      prev.map((note) => (note.id === activeNoteId ? updatedNote : note))
     );
     queueNoteSync(updatedNote);
   };
@@ -207,6 +296,7 @@ export function NotesApp() {
       ...noteToDelete,
       updated_at: deletedAt,
       deleted_at: deletedAt,
+      syncStatus: 'pending' as const,
     };
     const nextNotes = notes.map((note) =>
       note.id === noteId ? deletedNote : note

@@ -70,6 +70,14 @@ export async function getNotes(includeDeleted = false): Promise<Note[]> {
   return res.data.map(normalizeNote);
 }
 
+export async function getNotesSince(since: string): Promise<Note[]> {
+  const res = await axios.get(`${API_URL}/notes`, {
+    headers: authHeaders(),
+    params: { since },
+  });
+  return res.data.map(normalizeNote);
+}
+
 export async function updateNote(
   id: string,
   key: string,
@@ -93,10 +101,17 @@ export async function syncNote(note: Note): Promise<Note> {
     return deleteNote(note.id, note.deleted_at);
   }
 
-  const res = await axios.post(`${API_URL}/notes`, serializeNote(note), {
-    headers: authHeaders(),
-  });
-  return normalizeNote(res.data);
+  try {
+    const res = await axios.post(`${API_URL}/notes`, serializeNote(note), {
+      headers: authHeaders(),
+    });
+    return normalizeNote(res.data);
+  } catch (error) {
+    if (error instanceof AxiosError && error.response?.status === 409) {
+      return normalizeNote(error.response.data);
+    }
+    throw error;
+  }
 }
 
 export async function createNote(note: Note): Promise<Note> {
@@ -173,4 +188,20 @@ export async function mergeNotes(remoteNotes: Note[] = []): Promise<Note[]> {
   const notes = Array.from(mergedNotes.values());
   saveLocalNotes(notes);
   return notes;
+}
+
+export function mergeRemoteChanges(
+  remoteNotes: Note[],
+  localNotes: Note[]
+): Note[] {
+  const merged = new Map(localNotes.map((n) => [n.id, n]));
+
+  for (const remote of remoteNotes) {
+    const local = merged.get(remote.id);
+    if (!local || noteChangedAt(remote) >= noteChangedAt(local)) {
+      merged.set(remote.id, { ...remote, syncStatus: 'synced' as const });
+    }
+  }
+
+  return Array.from(merged.values());
 }

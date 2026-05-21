@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, FileText, Search, Trash2 } from 'lucide-react';
+import { Plus, FileText, Search, Trash2, Circle } from 'lucide-react';
 import {
   Sidebar,
   SidebarContent,
@@ -42,6 +42,7 @@ export interface Note {
   updated_at: Date;
   deleted_at?: Date | null;
   is_hidden?: boolean;
+  syncStatus?: 'synced' | 'pending' | 'error';
 }
 
 interface AppSidebarProps {
@@ -195,6 +196,12 @@ export function AppSidebar({
                           <span className="font-medium text-sm truncate">
                             {getTextPreview(note.title, 20) || 'Untitled'}
                           </span>
+                          {note.syncStatus === 'pending' && (
+                            <Circle className="h-2.5 w-2.5 fill-amber-400 text-amber-400 flex-shrink-0" />
+                          )}
+                          {note.syncStatus === 'error' && (
+                            <Circle className="h-2.5 w-2.5 fill-red-500 text-red-500 flex-shrink-0" />
+                          )}
                         </div>
                         <p className="text-xs text-current/70 line-clamp-2 text-left">
                           {getTextPreview(note.content)}
