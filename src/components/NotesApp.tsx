@@ -1,66 +1,165 @@
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
-import { AppSidebar, Note } from './AppSidebar';
+import { AppSidebar, Note, SortOption } from './AppSidebar';
 import { NoteEditor } from './NoteEditor';
 import { Input } from '@/components/ui/input';
-import { Loader2, Menu } from 'lucide-react';
-import { getNotes, mergeNotes } from '@/api';
+import { Loader2 } from 'lucide-react';
+import {
+  getNotes,
+  mergeNotes,
+  noteChangedAt,
+  saveLocalNotes,
+  syncNote,
+} from '@/api';
+
+const SORT_STORAGE_KEY = 'notesSortOption';
+
+function sortVisibleNotes(notes: Note[], sortOption: SortOption): Note[] {
+  const visibleNotes = notes.filter((note) => !note.deleted_at);
+
+  return [...visibleNotes].sort((a, b) => {
+    if (sortOption === 'updated-asc') {
+      return noteChangedAt(a) - noteChangedAt(b);
+    }
+
+    if (sortOption === 'title-asc') {
+      const aTitle = a.title.trim() || 'Untitled';
+      const bTitle = b.title.trim() || 'Untitled';
+      return aTitle.localeCompare(bTitle);
+    }
+
+    return noteChangedAt(b) - noteChangedAt(a);
+  });
+}
+
+function createDraftNote(overrides: Partial<Note> = {}): Note {
+  const now = new Date();
+
+  return {
+    id: Date.now().toString(),
+    title: '',
+    content: '',
+    created_at: now,
+    updated_at: now,
+    deleted_at: null,
+    ...overrides,
+  };
+}
 
 export function NotesApp() {
   const [loading, setLoading] = useState(true);
   const [notes, setNotes] = useState<Note[]>([]);
   const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
+  const [sortOption, setSortOption] = useState<SortOption>(() => {
+    return (
+      (localStorage.getItem(SORT_STORAGE_KEY) as SortOption | null) ||
+      'updated-desc'
+    );
+  });
+  const syncTimersRef = useRef<Record<string, number>>({});
+  const initialSortOptionRef = useRef(sortOption);
+
+  const queueNoteSync = useCallback((note: Note, delay = 700) => {
+    window.clearTimeout(syncTimersRef.current[note.id]);
+
+    syncTimersRef.current[note.id] = window.setTimeout(async () => {
+      try {
+        const syncedNote = await syncNote(note);
+
+        setNotes((prev) =>
+          prev.map((currentNote) => {
+            if (currentNote.id !== syncedNote.id) return currentNote;
+            return noteChangedAt(syncedNote) >= noteChangedAt(currentNote)
+              ? syncedNote
+              : currentNote;
+          })
+        );
+      } catch (error) {
+        console.error(error);
+      } finally {
+        delete syncTimersRef.current[note.id];
+      }
+    }, delay);
+  }, []);
 
   // Load notes from localStorage on mount
   useEffect(() => {
     async function initialLoad(): Promise<void> {
       try {
-        const notes = await getNotes();
-        const allNotes = await mergeNotes(notes);
-        console.log(allNotes);
-        if (allNotes.length > 0) {
+        let remoteNotes: Note[] = [];
+
+        try {
+          remoteNotes = await getNotes(true);
+        } catch (error) {
+          console.error(error);
+        }
+
+        const allNotes = await mergeNotes(remoteNotes);
+        const visibleNotes = sortVisibleNotes(
+          allNotes,
+          initialSortOptionRef.current
+        );
+
+        if (visibleNotes.length > 0) {
           setNotes(allNotes);
-          setActiveNoteId(allNotes[0].id);
+          setActiveNoteId(visibleNotes[0].id);
         } else {
-          const welcomeNote: Note = {
-            id: Date.now().toString(),
+          const welcomeNote = createDraftNote({
             title: 'Welcome to Notes',
             content:
               '<p>Welcome to your minimalist note-taking app!</p><p>Start by clicking the <strong>+</strong> button to create a new note, or edit this one.</p><p>Use the formatting toolbar to make your text <strong>bold</strong>, <em>italic</em>, or <u>underlined</u>.</p>',
-            updated_at: new Date(),
-          };
+          });
+
           setNotes([welcomeNote]);
           setActiveNoteId(welcomeNote.id);
+          queueNoteSync(welcomeNote, 0);
         }
       } catch (err) {
         console.error(err);
       } finally {
-        console.log('Merge done');
         setLoading(false);
       }
     }
 
     initialLoad();
-  }, []);
+  }, [queueNoteSync]);
 
   // Save notes to localStorage whenever notes change
   useEffect(() => {
-    if (notes.length > 0) {
-      localStorage.setItem('notes', JSON.stringify(notes));
+    if (!loading) {
+      saveLocalNotes(notes);
     }
-  }, [notes]);
+  }, [loading, notes]);
 
-  const activeNote = notes.find((note) => note.id === activeNoteId);
+  useEffect(() => {
+    localStorage.setItem(SORT_STORAGE_KEY, sortOption);
+  }, [sortOption]);
+
+  useEffect(() => {
+    const syncTimers = syncTimersRef.current;
+
+    return () => {
+      Object.values(syncTimers).forEach((timerId) => {
+        window.clearTimeout(timerId);
+      });
+    };
+  }, []);
+
+  const visibleNotes = useMemo(
+    () => sortVisibleNotes(notes, sortOption),
+    [notes, sortOption]
+  );
+
+  const activeNote = notes.find(
+    (note) => note.id === activeNoteId && !note.deleted_at
+  );
 
   const handleNewNote = () => {
-    const newNote: Note = {
-      id: Date.now().toString(),
-      title: '',
-      content: '',
-      updated_at: new Date(),
-    };
+    const newNote = createDraftNote();
+
     setNotes((prev) => [newNote, ...prev]);
     setActiveNoteId(newNote.id);
+    queueNoteSync(newNote, 0);
   };
 
   const handleNoteSelect = (noteId: string) => {
@@ -70,25 +169,60 @@ export function NotesApp() {
   const handleTitleChange = (title: string) => {
     if (!activeNoteId) return;
 
+    const activeNote = notes.find((note) => note.id === activeNoteId);
+    if (!activeNote) return;
+
+    const updatedNote = { ...activeNote, title, updated_at: new Date() };
+
     setNotes((prev) =>
       prev.map((note) =>
-        note.id === activeNoteId
-          ? { ...note, title, updated_at: new Date() }
-          : note
+        note.id === activeNoteId ? updatedNote : note
       )
     );
+    queueNoteSync(updatedNote);
   };
 
   const handleContentChange = (content: string) => {
     if (!activeNoteId) return;
 
+    const activeNote = notes.find((note) => note.id === activeNoteId);
+    if (!activeNote) return;
+
+    const updatedNote = { ...activeNote, content, updated_at: new Date() };
+
     setNotes((prev) =>
       prev.map((note) =>
-        note.id === activeNoteId
-          ? { ...note, content, updated_at: new Date() }
-          : note
+        note.id === activeNoteId ? updatedNote : note
       )
     );
+    queueNoteSync(updatedNote);
+  };
+
+  const handleDeleteNote = (noteId: string) => {
+    const noteToDelete = notes.find((note) => note.id === noteId);
+    if (!noteToDelete) return;
+
+    const deletedAt = new Date();
+    const deletedNote = {
+      ...noteToDelete,
+      updated_at: deletedAt,
+      deleted_at: deletedAt,
+    };
+    const nextNotes = notes.map((note) =>
+      note.id === noteId ? deletedNote : note
+    );
+
+    setNotes(nextNotes);
+    queueNoteSync(deletedNote, 0);
+
+    if (activeNoteId === noteId) {
+      const nextActiveNote = sortVisibleNotes(nextNotes, sortOption)[0];
+      setActiveNoteId(nextActiveNote?.id || null);
+    }
+  };
+
+  const handleSortOptionChange = (nextSortOption: SortOption) => {
+    setSortOption(nextSortOption);
   };
 
   return (
@@ -101,10 +235,13 @@ export function NotesApp() {
         )}
 
         <AppSidebar
-          notes={notes}
+          notes={visibleNotes}
           activeNoteId={activeNoteId}
+          sortOption={sortOption}
           onNoteSelect={handleNoteSelect}
           onNewNote={handleNewNote}
+          onDeleteNote={handleDeleteNote}
+          onSortOptionChange={handleSortOptionChange}
         />
 
         <main className="flex-1 flex flex-col min-w-0">

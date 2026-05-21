@@ -1,6 +1,9 @@
-import axios from 'axios';
-import { Note } from './components/AppSidebar';
-const API_URL = 'https://notes-api.eughami.com';
+import axios, { AxiosError } from 'axios';
+import type { Note } from './components/AppSidebar';
+
+// const API_URL = 'https://notes-api.eughami.com';
+const API_URL = 'http://localhost:3000';
+const NOTES_STORAGE_KEY = 'notes';
 
 interface User {
   id: number;
@@ -8,123 +11,166 @@ interface User {
   password: string;
 }
 
+const authHeaders = () => ({ 'x-user-id': localStorage.getItem('userId') });
+
+const serializeNote = (note: Note) => ({
+  ...note,
+  created_at: note.created_at?.toISOString() || note.updated_at.toISOString(),
+  updated_at: note.updated_at.toISOString(),
+  deleted_at: note.deleted_at ? note.deleted_at.toISOString() : null,
+});
+
+export function normalizeNote(note: Partial<Note>): Note {
+  const updatedAt = new Date(note.updated_at || Date.now());
+  const createdAt = new Date(note.created_at || updatedAt);
+
+  return {
+    id: String(note.id),
+    title: note.title || '',
+    content: note.content || '',
+    created_at: createdAt,
+    updated_at: updatedAt,
+    deleted_at: note.deleted_at ? new Date(note.deleted_at) : null,
+    is_hidden: Boolean(note.is_hidden),
+  };
+}
+
+export function readLocalNotes(): Note[] {
+  const savedNotes = localStorage.getItem(NOTES_STORAGE_KEY);
+  if (!savedNotes) return [];
+
+  try {
+    const notes = JSON.parse(savedNotes);
+    if (!Array.isArray(notes)) return [];
+    return notes.map(normalizeNote);
+  } catch (error) {
+    console.error(error);
+    return [];
+  }
+}
+
+export function saveLocalNotes(notes: Note[]): void {
+  localStorage.setItem(NOTES_STORAGE_KEY, JSON.stringify(notes));
+}
+
+export function noteChangedAt(note: Note): number {
+  return (note.deleted_at || note.updated_at).getTime();
+}
+
 export async function createUser(username: string): Promise<User> {
   const res = await axios.post(`${API_URL}/users`, { username });
   return res.data;
 }
 
-export async function getNotes(): Promise<Note[]> {
+export async function getNotes(includeDeleted = false): Promise<Note[]> {
   const res = await axios.get(`${API_URL}/notes`, {
-    headers: { 'x-user-id': localStorage.getItem('userId') },
+    headers: authHeaders(),
+    params: { includeDeleted },
   });
-  return res.data;
+  return res.data.map(normalizeNote);
 }
 
 export async function updateNote(
   id: string,
   key: string,
   value: string,
-  payload: { [key: string]: string }
-): Promise<void> {
+  payload?: Partial<Note>
+): Promise<Note | undefined> {
   try {
-    await axios.patch(
+    const res = await axios.patch(
       `${API_URL}/notes/${id}`,
-      payload
-        ? {
-            ...payload,
-          }
-        : { [key]: value },
-      { headers: { 'x-user-id': localStorage.getItem('userId') } }
+      payload || { [key]: value },
+      { headers: authHeaders() }
     );
+    return normalizeNote(res.data);
   } catch (error) {
     console.error(error);
   }
 }
 
-export async function createNote(n: Note): Promise<Note> {
+export async function syncNote(note: Note): Promise<Note> {
+  if (note.deleted_at) {
+    return deleteNote(note.id, note.deleted_at);
+  }
+
+  const res = await axios.post(`${API_URL}/notes`, serializeNote(note), {
+    headers: authHeaders(),
+  });
+  return normalizeNote(res.data);
+}
+
+export async function createNote(note: Note): Promise<Note> {
+  return syncNote(note);
+}
+
+export async function deleteNote(
+  id: string,
+  deletedAt = new Date()
+): Promise<Note> {
   try {
-    const res = await axios.post(
-      `${API_URL}/notes`,
-      {
-        ...n,
-        createdAt: n.updated_at,
-      },
-      {
-        headers: { 'x-user-id': localStorage.getItem('userId') },
-      }
-    );
-    return res.data;
+    const res = await axios.delete(`${API_URL}/notes/${id}`, {
+      headers: authHeaders(),
+      data: { deleted_at: deletedAt.toISOString() },
+    });
+    return normalizeNote(res.data);
   } catch (error) {
-    console.error(error);
+    if (error instanceof AxiosError && error.response?.status === 404) {
+      return normalizeNote({
+        id,
+        title: '',
+        content: '',
+        updated_at: deletedAt,
+        deleted_at: deletedAt,
+      });
+    }
+    throw error;
   }
 }
 
 export async function deleteNode(id: string): Promise<void> {
-  await axios.delete(`${API_URL}/notes/${id}`);
+  await deleteNote(id);
 }
 
-type noteObj = {
-  [key: string]: Note;
-};
-export async function mergeNotes(notes: Note[] = []): Promise<Note[]> {
-  const savedNotes = localStorage.getItem('notes');
-  let localNotes: Note[] = [];
-  if (savedNotes) {
-    localNotes = JSON.parse(savedNotes).map((note: Note) => ({
-      ...note,
-      id: parseInt(note.id, 10),
-      updated_at: new Date(note.updated_at),
-    }));
-  }
+export async function mergeNotes(remoteNotes: Note[] = []): Promise<Note[]> {
+  const localNotes = readLocalNotes();
 
-  if (!notes.length && !localNotes.length) return [];
+  if (!remoteNotes.length && !localNotes.length) return [];
 
-  const uniqueNote: noteObj = {};
+  const mergedNotes = new Map<string, Note>();
 
-  notes.forEach((n) => {
-    uniqueNote[n.id] = {
-      id: n.id,
-      title: n.title,
-      content: n.content,
-      updated_at: new Date(n.updated_at),
-      is_hidden: n.is_hidden,
-    };
+  remoteNotes.map(normalizeNote).forEach((note) => {
+    mergedNotes.set(note.id, note);
   });
 
-  localNotes.forEach((n) => {
-    if (uniqueNote[n.id]) {
-      // note exist remotely
-      const localIsNewer = isNewer(
-        new Date(n.updated_at),
-        uniqueNote[n.id].updated_at
-      );
-      //* 1. remote is more recent: overwrite local <<DO NOTHING!!>>
-      //* 2. local is more recent: overwrite remote
-      if (localIsNewer) {
-        uniqueNote[n.id] = {
-          ...n,
-          updated_at: new Date(n.updated_at),
-        };
+  const syncTasks: Promise<Note>[] = [];
 
-        updateNote(n.id, '', '', {
-          title: n.title,
-          content: n.content,
-        });
-      }
-      //! For future find a merge strategy
-      //! <<<<<MAYBE FIND A WAY TO SAVE PREVIOUS CONTENT OF NOTE IN A HISTORY TABLE>>>>>>>>>
-    } else {
-      uniqueNote[n.id] = {
-        ...n,
-        updated_at: new Date(n.updated_at),
-      };
-      createNote(n);
+  localNotes.forEach((localNote) => {
+    const remoteNote = mergedNotes.get(localNote.id);
+
+    if (!remoteNote) {
+      mergedNotes.set(localNote.id, localNote);
+      syncTasks.push(syncNote(localNote));
+      return;
+    }
+
+    if (noteChangedAt(localNote) > noteChangedAt(remoteNote)) {
+      mergedNotes.set(localNote.id, localNote);
+      syncTasks.push(syncNote(localNote));
     }
   });
 
-  return Object.values(uniqueNote);
-}
+  if (syncTasks.length) {
+    const syncedNotes = await Promise.allSettled(syncTasks);
+    syncedNotes.forEach((result) => {
+      if (result.status === 'fulfilled') {
+        mergedNotes.set(result.value.id, result.value);
+      } else {
+        console.error(result.reason);
+      }
+    });
+  }
 
-function isNewer(d1: Date, d2: Date): boolean {
-  return d1.getTime() > d2.getTime();
+  const notes = Array.from(mergedNotes.values());
+  saveLocalNotes(notes);
+  return notes;
 }

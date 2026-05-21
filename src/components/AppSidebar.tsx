@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { Plus, FileText, Search } from 'lucide-react';
+import { Plus, FileText, Search, Trash2 } from 'lucide-react';
 import {
   Sidebar,
   SidebarContent,
   SidebarHeader,
+  SidebarMenuAction,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
@@ -12,37 +13,69 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+
+export type SortOption = 'updated-desc' | 'updated-asc' | 'title-asc';
 
 export interface Note {
   id: string;
   title: string;
   content: string;
+  created_at?: Date;
   updated_at: Date;
+  deleted_at?: Date | null;
   is_hidden?: boolean;
 }
 
 interface AppSidebarProps {
   notes: Note[];
   activeNoteId: string | null;
+  sortOption: SortOption;
   onNoteSelect: (noteId: string) => void;
   onNewNote: () => void;
+  onDeleteNote: (noteId: string) => void;
+  onSortOptionChange: (sortOption: SortOption) => void;
 }
 
 export function AppSidebar({
   notes,
   activeNoteId,
+  sortOption,
   onNoteSelect,
   onNewNote,
+  onDeleteNote,
+  onSortOptionChange,
 }: AppSidebarProps) {
   const { state } = useSidebar();
   const [searchQuery, setSearchQuery] = useState('');
   const isCollapsed = state === 'collapsed';
 
-  const filteredNotes = notes.filter(
-    (note) =>
-      note.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      note.content.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredNotes = notes.filter((note) => {
+    if (note.deleted_at) return false;
+
+    const normalizedQuery = searchQuery.toLowerCase();
+    return (
+      note.title.toLowerCase().includes(normalizedQuery) ||
+      note.content.toLowerCase().includes(normalizedQuery)
+    );
+  });
 
   const formatDate = (date: Date) => {
     const now = new Date();
@@ -108,6 +141,21 @@ export function AppSidebar({
                 className="pl-9 h-9"
               />
             </div>
+            <Select
+              value={sortOption}
+              onValueChange={(value) =>
+                onSortOptionChange(value as SortOption)
+              }
+            >
+              <SelectTrigger className="mt-3 h-8 text-xs">
+                <SelectValue placeholder="Sort notes" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="updated-desc">Last modified</SelectItem>
+                <SelectItem value="updated-asc">Oldest modified</SelectItem>
+                <SelectItem value="title-asc">Title A-Z</SelectItem>
+              </SelectContent>
+            </Select>
           </>
         )}
         {isCollapsed && (
@@ -160,6 +208,38 @@ export function AppSidebar({
                     )}
                   </div>
                 </SidebarMenuButton>
+                {!isCollapsed && (
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <SidebarMenuAction
+                        showOnHover
+                        aria-label="Delete note"
+                        onClick={(event) => event.stopPropagation()}
+                        className="text-current/70 hover:text-destructive"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </SidebarMenuAction>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Delete note?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          This note will be removed from the sidebar and kept as
+                          a soft-deleted record for sync.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                          onClick={() => onDeleteNote(note.id)}
+                          className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                        >
+                          Delete
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                )}
               </SidebarMenuItem>
             ))}
           </SidebarMenu>
